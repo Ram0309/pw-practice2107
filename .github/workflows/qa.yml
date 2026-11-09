@@ -1,0 +1,105 @@
+name: AI QA Framework
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '30 2 * * 1-5' # nightly AI pipeline, weekdays 02:30 UTC
+  workflow_dispatch:
+    inputs:
+      requirement:
+        description: 'Requirement file for the AI pipeline'
+        default: 'requirements/REQ-001-product-search.md'
+      execute:
+        description: 'Execute approved generated tests'
+        type: boolean
+        default: true
+
+concurrency:
+  group: qa-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: 'true'
+  APP_BASE_URL: https://demowebshop.tricentis.com
+  LOG_LEVEL: info
+
+jobs:
+  # 1. Fast, offline: type check + agent unit tests (no browser, no network, no LLM)
+  framework:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:framework
+        env: { LLM_PROVIDER: mock }
+
+  # 2. Curated UI + API smoke suite against the live demo
+  smoke:
+    needs: framework
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:smoke
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-report
+          path: |
+            reports/
+            test-results/
+          retention-days: 14
+
+  # 3. Autonomous AI pipeline (nightly / manual). Provider and model come from repo variables,
+  #    keys from secrets. Without a key it still runs, in offline (mock) mode.
+  ai-pipeline:
+    needs: framework
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'mock' }}
+      LLM_MODEL: ${{ vars.LLM_MODEL }}
+      LLM_AGENT_ROUTES: ${{ vars.LLM_AGENT_ROUTES }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+      AZURE_OPENAI_API_INSTANCE_NAME: ${{ vars.AZURE_OPENAI_API_INSTANCE_NAME }}
+      AZURE_OPENAI_API_DEPLOYMENT_NAME: ${{ vars.AZURE_OPENAI_API_DEPLOYMENT_NAME }}
+      HEALING_MODE: auto-generated
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Run multi-agent pipeline
+        run: |
+          EXEC_FLAG=""
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.execute }}" = "true" ]; then EXEC_FLAG="--execute"; fi
+          npx tsx src/cli.ts full --file "${{ inputs.requirement || 'requirements/REQ-001-product-search.md' }}" $EXEC_FLAG
+      - name: Publish report to job summary
+        if: always()
+        run: |
+          f=$(ls -t reports/runs/*/report.md 2>/dev/null | head -1)
+          [ -n "$f" ] && cat "$f" >> "$GITHUB_STEP_SUMMARY" || echo "No report produced" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ai-pipeline-${{ github.run_id }}
+          path: |
+            reports/
+            generated-tests/
+            logs/
+          retention-days: 30

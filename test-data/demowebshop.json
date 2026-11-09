@@ -1,0 +1,32 @@
+{
+  "search": {
+    "validTerm": "laptop",
+    "expectedProduct": "14.1-inch Laptop",
+    "shortTerm": "ab",
+    "noResultTerm": "zzqqxx"
+  },
+  "products": {
+    "laptop": { "id": 31, "name": "14.1-inch Laptop", "slug": "141-inch-laptop", "price": "1590.00" }
+  },
+  "login": {
+    "unknownEmail": "unknown.customer.qa@example.com",
+    "anyPassword": "WrongPassword!1",
+    "invalidEmailFormat": "not-an-email"
+  },
+  "guestBilling": {
+    "firstName": "Test",
+    "lastName": "Customer",
+    "email": "test.customer.qa@example.com",
+    "country": "United States",
+    "city": "Testville",
+    "address1": "1 Test Street",
+    "zip": "10001",
+    "phone": "5550100"
+  },
+  "messages": {
+    "addedToCart": "The product has been added to your shopping cart",
+    "searchTooShort": "Search term minimum length is 3 characters",
+    "searchNoResults": "No products were found that matched your criteria.",
+    "loginFailed": "Login was unsuccessful. Please correct the errors and try again."
+  }
+}

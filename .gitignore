@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+test-results/
+reports/*
+!reports/.gitkeep
+generated-tests/*
+!generated-tests/.gitkeep
+logs/*
+!logs/.gitkeep
+allure-results/
+.DS_Store
