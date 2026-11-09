@@ -1,0 +1,92 @@
+name: Smoke Tests
+
+# Runs automatically on every commit (any branch), on pull requests to main,
+# once a day on a schedule, and on demand from the Actions tab.
+on:
+  push:
+    branches: ['**']
+    paths-ignore: ['docs/**', 'README.md']
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '30 3 * * *' # every day 03:30 UTC (09:00 IST). Schedules always run on the default branch.
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 'Which tests to run'
+        type: choice
+        options: [smoke, ui, api, all]
+        default: smoke
+
+concurrency:
+  group: smoke-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+env:
+  CI: 'true'
+  APP_BASE_URL: https://demowebshop.tricentis.com
+  LLM_PROVIDER: mock
+  LOG_LEVEL: warn
+
+jobs:
+  # 1. Fast gate: type check + offline agent unit tests (no browser, network or LLM)
+  framework:
+    name: Typecheck + agent unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:framework
+
+  # 2. Curated UI + API smoke suite against the live Demo Web Shop
+  smoke:
+    name: Smoke (${{ inputs.suite || 'smoke' }})
+    needs: framework
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+      - name: Install Chromium system dependencies
+        run: npx playwright install-deps chromium
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+
+      - name: Run tests
+        run: |
+          case "${{ inputs.suite || 'smoke' }}" in
+            ui)  npm run test:ui ;;
+            api) npm run test:api ;;
+            all) npm test ;;
+            *)   npm run test:smoke ;;
+          esac
+
+      - name: Results summary
+        if: always()
+        run: node scripts/ci-summary.mjs >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-report-${{ github.run_id }}
+          path: |
+            reports/playwright-html/
+            reports/playwright-results.json
+            reports/junit.xml
+            test-results/
+          retention-days: 14

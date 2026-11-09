@@ -1,0 +1,87 @@
+name: AI Pipeline
+
+# Autonomous multi-agent run: requirement -> test design -> scripts -> validation ->
+# execution -> healing -> API tests -> report. Scheduled on weekdays and on demand.
+on:
+  schedule:
+    - cron: '0 4 * * 1-5' # Mon-Fri 04:00 UTC (09:30 IST)
+  workflow_dispatch:
+    inputs:
+      requirement:
+        description: 'Requirement file'
+        type: choice
+        options:
+          - requirements/REQ-001-product-search.md
+          - requirements/REQ-002-add-to-cart.md
+          - requirements/REQ-003-customer-login.md
+        default: requirements/REQ-001-product-search.md
+      execute:
+        description: 'Execute approved generated tests'
+        type: boolean
+        default: true
+
+concurrency:
+  group: ai-pipeline
+  cancel-in-progress: false
+
+env:
+  CI: 'true'
+  APP_BASE_URL: https://demowebshop.tricentis.com
+  LOG_LEVEL: info
+  # Provider/model come from repository variables; keys from secrets.
+  # With no variable set, agents run in offline (mock) mode.
+  LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'mock' }}
+  LLM_MODEL: ${{ vars.LLM_MODEL }}
+  LLM_AGENT_ROUTES: ${{ vars.LLM_AGENT_ROUTES }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+  AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+  AZURE_OPENAI_API_INSTANCE_NAME: ${{ vars.AZURE_OPENAI_API_INSTANCE_NAME }}
+  AZURE_OPENAI_API_DEPLOYMENT_NAME: ${{ vars.AZURE_OPENAI_API_DEPLOYMENT_NAME }}
+  HEALING_MODE: auto-generated
+
+jobs:
+  pipeline:
+    name: Multi-agent run
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Scheduled runs cover every requirement; manual runs use the chosen one.
+        requirement: ${{ fromJSON(github.event_name == 'workflow_dispatch' && format('["{0}"]', inputs.requirement) || '["requirements/REQ-001-product-search.md","requirements/REQ-002-add-to-cart.md","requirements/REQ-003-customer-login.md"]') }}
+      max-parallel: 1 # keep load on the shared public demo low
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      - name: Run agents
+        run: |
+          EXEC_FLAG=""
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.execute }}" = "true" ]; then EXEC_FLAG="--execute"; fi
+          npx tsx src/cli.ts full --file "${{ matrix.requirement }}" $EXEC_FLAG
+
+      - name: Publish QA report to job summary
+        if: always()
+        run: |
+          f=$(ls -t reports/runs/*/report.md 2>/dev/null | head -1)
+          if [ -n "$f" ]; then cat "$f" >> "$GITHUB_STEP_SUMMARY"; else echo "No report produced" >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Artifact name
+        id: name
+        if: always()
+        run: echo "value=$(basename '${{ matrix.requirement }}' .md)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ai-pipeline-${{ steps.name.outputs.value }}-${{ github.run_id }}
+          path: |
+            reports/
+            generated-tests/
+            logs/
+          retention-days: 30

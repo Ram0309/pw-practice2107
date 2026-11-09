@@ -113,7 +113,10 @@ Outputs:
 ├── tests/framework               agent unit tests
 ├── generated-tests/              AI-generated specs (git-ignored, review before promoting)
 ├── reports/  logs/               outputs (git-ignored)
-├── .github/workflows/qa.yml      GitHub Actions
+├── .github/workflows/
+│   ├── smoke-tests.yml           on every commit, PR, daily schedule, manual
+│   └── ai-pipeline.yml           weekday schedule + manual multi-agent run
+├── scripts/ci-summary.mjs        Playwright results → GitHub job summary
 └── Jenkinsfile                   Jenkins pipeline
 ```
 

@@ -13,4 +13,4 @@
 | 9 | API | `api.agent.ts` | api-contracts.md → `ApiPlan` + spec | tests from documented examples, template rendering | extra contract and boundary tests | documented, safe endpoints only; code rendered from data |
 | 10 | Reporting | `reporting.agent.ts` | run state → `QaReport` (+ md/html/json) | metrics, verdict, risks, next actions | executive narrative | verdict and metrics never come from the LLM |
 | 11 | Master Orchestrator | `orchestrator/qa-graph.ts` | requirement → final state | LangGraph StateGraph with retries, execution and healing loops | (none) | recursion limit, per-node error capture |
-| 12 | CI/CD | `.github/workflows/qa.yml`, `Jenkinsfile` | push / nightly / manual | framework tests → smoke → AI pipeline | provider from CI variables | keys from secrets; artifacts archived |
+| 12 | CI/CD | `.github/workflows/smoke-tests.yml`, `.github/workflows/ai-pipeline.yml`, `Jenkinsfile` | every commit / PR / daily & weekday schedules / manual | framework tests → smoke → AI pipeline | provider from CI variables | keys from secrets; artifacts archived |
